@@ -380,7 +380,7 @@ def PiCall(DataHP, TibberData, TimeInitial, extension='all'):
     print('####### Pull sensibo ########')
     
     try:
-        response = requests.get(PIIP+'/api/get_data/sensibo/daily/'+extension)
+        response = requests.get(PIIP+'/api/get_data/sensibo/daily/'+extension, timeout=60)
         Sensibo = json.loads(response.text)
 
         dates = list(Sensibo['data'].keys())
@@ -425,7 +425,7 @@ def PiCall(DataHP, TibberData, TimeInitial, extension='all'):
                      'Energy'    : [] }
                          
     try:
-        response = requests.get(PIIP+'/api/get_data/tibber-realtime-'+home_name+'/daily/'+extension)
+        response = requests.get(PIIP+'/api/get_data/tibber-realtime-'+home_name+'/daily/'+extension, timeout=60)
         TibberRT = json.loads(response.text)
 
         # Extract Tibber data
