@@ -50,7 +50,7 @@ APIkey = {'Sensibo' : 'tXZ5Ibk5s95UZgZgOU3wzJ4MOunl2f',
 # - Go to local network
 # - ssh pi@raspberrypi.local type usual password
 # - (docker ps to see who's there)
-# - cd to raspberry-sw
+# - cd raspberry-sw
 # - docker-compose down (stops software)
 # - docker-compose up -d (starts sotftware, run in the background)
 
@@ -63,7 +63,8 @@ APIkey = {'Sensibo' : 'tXZ5Ibk5s95UZgZgOU3wzJ4MOunl2f',
 
 
 #PIIP = 'http://192.168.1.44'               # Local
-PIIP = 'https://0582484c4c43.ngrok.io'      # Global (not operational yet)
+#PIIP = 'http://raspberry.local'
+PIIP = 'https://3604010d2957.ngrok.io'      # Global (not operational yet)
 
 
 
@@ -709,6 +710,14 @@ def CreatePumpDataStructures(SensiboDevices):
                         
     return Data
 
+def CheckHPStates(SensiboDevices):
+    for HP in SensiboDevices.keys():
+        CurrentState = HomeSensibo.pod_ac_state(SensiboDevices[HP])
+        if CurrentState['on'] == False and CurrentState['targetTemperature'] > 16:
+            print('State '+HP+' corrected')
+            HomeSensibo.pod_change_ac_state(SensiboDevices[HP],CurrentState,'on',True)
+            HomeSensibo.pod_change_ac_state(SensiboDevices[HP],CurrentState,'targetTemperature',16)
+                        
 def UpdatePumpStates(SensiboDevices,State):
     # Updates the state of all pumps according to the data structure "Control"
     for HP in SensiboDevices.keys():
@@ -798,6 +807,17 @@ def AvPowerFlat(time,power,time_start=[],time_end=[]):
     else:
             PowerAverage = []
     return PowerAverage
+
+
+
+"""
+window = 20
+response = requests.get(PIIP+'/api/get_data_since/tibber-realtime-'+home_name+'/minutes/'+str(window), timeout=60)
+TibberRT = json.loads(response.text)
+response = requests.get(PIIP+'/api/get_data_since/sensibo/minutes/'+str(window), timeout=60)
+Sensibo = json.loads(response.text)
+sys.exit()
+"""
 """
 TimeInitial = datetime.now(tz=local_timezone)
 #dates = str(date.today())
@@ -861,6 +881,7 @@ print(Sensibo)
 sys.exit()
 """
 
+#CheckHPStates(SensiboDevices)  # Make sure that off pumps are at minimum temperature (16deg). The MPC model is invalid otherwise.
 
 print('Pull spot market')
 
@@ -1290,7 +1311,9 @@ Weather = {'Time'        : [ Forecast['Time'][0] ],
 
 
 SpotMarket = {'Time'     :  Spot['Time'],
-              'Price'    :  Spot['Prices'] }
+              'Prices'   :  Spot['Prices'],
+              'flattime' : [] }
+
 
 PowerAverage ={'Times': [],
                'Power': []}
@@ -1325,6 +1348,10 @@ else:
 TimeInitial   = TimeSchedule
 TimeFinal     = TimeInitial  + timedelta(hours=24*5)
 
+for time in Spot['Time']:
+    SpotMarket['flattime'].append( (time - TimeInitial).total_seconds()/60. )
+
+
 FileName = 'MHE_MPC_Experiments_'+str(TimeInitial.date())+'_'+str(TimeInitial.hour)+'_'+str(TimeInitial.minute)
 
 
@@ -1335,20 +1362,13 @@ for pump in Pumps:
 ## Data name
 
 ################## Pull Pi data (first call) ##################################
-"""
-response = requests.get(PIIP+'/api/get_data_since/tibber-realtime-'+home_name+'/minutes/5', timeout=60)
-TibberRT = json.loads(response.text)
-print(TibberRT)
-
-response = requests.get(PIIP+'/api/get_data_since/sensibo/minutes/5', timeout=60)
-Sensibo = json.loads(response.text)
-print(Sensibo)
-"""
 
 dates = str(date.today()-timedelta(days=1))
 DataHP, TibberData = PiFirstCall(TimeInitial, extension = dates)
 dates = str(date.today())
 DataHP, TibberData, TibberDataNew  = PiCall(DataHP, TibberData , TimeInitial, extension = dates)
+
+    
 
 #sys.exit()
 """
@@ -1447,9 +1467,12 @@ while 0 <= 1:
             SpotNew = GetSpotMarket(Zone,local_timezone)
             if SpotNew['Prices'][-1] < np.inf:
                 Spot = SpotNew
-                for k, time in enumerate(Spot['Time']):
-                    if (time - SpotMarket['Time'][-1]).total_seconds() > 0:
-                        SpotMarket['Prices'].append(Spot['Prices'][k])
+                for k, time in enumerate(SpotNew['Time']):
+                    if time > SpotMarket['Time'][-1]:
+                        SpotMarket['Prices'].append(SpotNew['Prices'][k])
+                        SpotMarket['Time'].append(time)
+                        SpotMarket['flattime'].append( (time - TimeInitial).total_seconds()/60. )
+
     except:
         print('Exception in Spot prices')
 
@@ -1747,17 +1770,18 @@ while 0 <= 1:
                 wMPC0['Input',:,pump,'On']                =  1
                 
                 wMPC0['Input',:,pump,'Slack']             =  0
-
+                
                 lbwMPC['State',0,pump,'TargetTemp']       =  DataMHENum['Data',-1,pump,'Ref_temp']
                 ubwMPC['State',0,pump,'TargetTemp']       =  DataMHENum['Data',-1,pump,'Ref_temp']
+
 
                 lbwMPC['State',0,pump,'Discomfort']       =  0
                 ubwMPC['State',0,pump,'Discomfort']       =  0
 
             else:
                 if wMPC0['State',1,pump,'TargetTemp'] < 16 and DataMHENum['Data',-1,pump,'On'] == False:
-                    lbwMPC['State',0,pump,'TargetTemp']   =  np.round(wMPC0['State',1,pump,'TargetTemp'])
-                    ubwMPC['State',0,pump,'TargetTemp']   =  np.round(wMPC0['State',1,pump,'TargetTemp'])
+                    lbwMPC['State',0,pump,'TargetTemp']   =  wMPC0['State',1,pump,'TargetTemp']
+                    ubwMPC['State',0,pump,'TargetTemp']   =  wMPC0['State',1,pump,'TargetTemp']
                 else:
                     lbwMPC['State',0,pump,'TargetTemp']   =  DataMHENum['Data',-1,pump,'Ref_temp']
                     ubwMPC['State',0,pump,'TargetTemp']   =  DataMHENum['Data',-1,pump,'Ref_temp']
@@ -1765,6 +1789,10 @@ while 0 <= 1:
                 lbwMPC['State',0,pump,'Discomfort']       =  wMPC0['State',1,pump,'Discomfort']
                 ubwMPC['State',0,pump,'Discomfort']       =  wMPC0['State',1,pump,'Discomfort']
 
+                if DataMHENum['Data',-1,pump,'On'] == False:
+                    # If pump is off, assign 16 by default
+                    lbwMPC['State',0,pump,'TargetTemp']       =  np.min([wMPC0['State',1,pump,'TargetTemp'],16])
+                    ubwMPC['State',0,pump,'TargetTemp']       =  np.min([wMPC0['State',1,pump,'TargetTemp'],16])
 
             f = scinterp.interp1d(np.array(TempSettings['Times']), np.array(TempSettings[pump]), kind='nearest')
             DataMPCNum['DesiredTemperature',:,pump] = list(f(np.array(TimeTemp)))
@@ -1775,9 +1803,32 @@ while 0 <= 1:
 
         DataMPCNum['Out_temp',:]                  = list(np.interp(  MPC_time_grid,  Times['Forecast'], Forecast['Temperature']           ))
         
-        f = scinterp.interp1d(np.array(Times['spot']), np.array(Spot['Prices']), kind='nearest', fill_value=Spot['Prices'][-1], bounds_error=False)
+        
+        #####  Feed spot market into MPC  #########
+        # Create a piecewise constant spot signal for easy interpolation
+        # Note: spot price applies from the time window starting at the corresponding time in the list up to +1h
+        SpotTimes  = []
+        SpotPrices = []
+        for k, price in enumerate(Spot['Prices']):
+            SpotTimes.append(Times['spot'][k])
+            SpotTimes.append(Times['spot'][k]+60)
+            SpotPrices.append(price)
+            SpotPrices.append(price)
+        
+        f = scinterp.interp1d(np.array(SpotTimes), np.array(SpotPrices), kind='nearest', fill_value=Spot['Prices'][-1], bounds_error=False)
         DataMPCNum['SpotPrices',:]                = list(f(np.array(MPC_time_grid)))
                 
+        """
+        plt.figure(21)
+        plt.plot(Times['spot'],Spot['Prices'],color='k',linewidth=3)
+        plt.step(Times['spot'],Spot['Prices'], where='post',color='k',linewidth=3)
+        plt.plot(SpotTimes,SpotPrices,color='b',linewidth=2)
+        plt.step(SpotMarket['flattime'],SpotMarket['Prices'], where='post',color='c')
+        plt.plot(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:]),color='r')
+        plt.grid('on')
+        """
+        
+        ######################
         #Base price
         DataMPCNum['BasePrice'] = 0
         print('Base Price : '+str(DataMPCNum['BasePrice'])+' Øre/kWh')
@@ -1897,7 +1948,6 @@ while 0 <= 1:
         # On/off switching
         for pump in Pumps:
             HPState[pump]['targetTemperature'] = int(np.max([16,MPCActions[pump]['TargetTemp']]))
-            #HPState[pump]['on']  = DataHP[pump]['states']['on'][-1]
             
             if (MPCActions[pump]['PowerMean'] > PowerSwitch) and (MPCActions[pump]['On'] == True) and HPState[pump]['on'] == False:
                 if (TimeSchedule - OnOffSwitch[pump]).total_seconds() > SwitchOnOffWindow*60:
@@ -2098,6 +2148,7 @@ while 0 <= 1:
     FN = 16
     AxList[FN][0].clear()
     Ax2List[FN][0].clear()
+    AxList[FN][0].step(TibberData['flattime'],np.array(TibberData['Power'])*1e-3, where='post', linewidth=1,color=[1,.9,.9],linestyle='-')
     AxList[FN][0].step(time_grid,PowerAverage, where='post', linewidth=1,color='r',linestyle='-')
     for index in range(0,NDisp): #for index, traj in enumerate(Logger_MHE_MPC['MPC']['RawSolution'][-NMPCtraj:]):
         traj = Logger_MHE_MPC['MPC']['RawSolution'][index + LenLogger - NDisp]
@@ -2111,13 +2162,14 @@ while 0 <= 1:
     AxList[FN][0].step(MHE_time_grid,MHEElecPower,color='c',linewidth=2,where='post')
 
     AxList[FN][0].step(MHELog['Times'],MHELog['Power'], where='post', linewidth=2,color='b',linestyle='-')
-    Ax2List[FN][0].step(Spot['Time'],np.array(Spot['Prices'])+GridCost, where='post', linewidth=2,color=[.5,0,.5])
-
-    Ax2List[FN][0].step(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, where='post', linewidth=2,color='m')
+    Ax2List[FN][0].step(SpotMarket['flattime'],np.array(SpotMarket['Prices'])+GridCost, where='post', linewidth=2,color=[.5,0,.5])
+    Ax2List[FN][0].plot(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, marker='o', linewidth=1,color='m')
     Ax2List[FN][0].set_ylabel('Prices [Øre]',fontsize=20,color='m')
     AxList[FN][0].set(title='Total Power')
     AxList[FN][0].set_ylim([0,4.5])
     Ax2List[FN][0].set_ylim([np.min(DataMPCNum['SpotPrices',:])+GridCost,np.max(DataMPCNum['SpotPrices',:])+GridCost])
+    
+    Ax2List[FN][0].set_ylim([np.min(SpotMarket['Prices'])+GridCost),np.max(np.array(SpotMarket['Prices'])+GridCost)])
     
     AxList[FN][1].clear()
     Ax2List[FN][1].clear()
