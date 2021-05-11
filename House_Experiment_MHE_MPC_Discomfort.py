@@ -34,7 +34,18 @@ import string
  
  
 # TODO:
-# - Cost function that penalizes long-term low temps. 
+#
+# Make a user-friendly display.
+#
+# For each room:
+# - Show temperature plan (desired and measured only) + on/off
+# - Show elec. prices vs. power consumption plan
+# - Show last 24h and next 24h
+# - Display the marginal costs? (multipliers associated to the desired and min temperatures)
+#
+# For the house:
+# - Show overall consumption + prices
+# - Show last 24h and next 24h
 
 plt.close("all")
 
@@ -156,15 +167,16 @@ HPGroups = [
             [ 'main',  'livingdown', 'studio' ]
           ]
 
-MaxPowGroup = [2.0,2.5]
+MaxPowGroup = [1.8,2.5]
 
 TargetTempLimit = {
-                    'main'       : {'Min' : 10, 'Max' : 26},
-                    'living'     : {'Min' : 10, 'Max' : 26},
-                    'studio'     : {'Min' : 10, 'Max' : 26},
-                    'livingdown' : {'Min' : 10, 'Max' : 26}
+                    'main'       : {'Min' : 10, 'Max' : 28},
+                    'living'     : {'Min' : 10, 'Max' : 28},
+                    'studio'     : {'Min' : 10, 'Max' : 28},
+                    'livingdown' : {'Min' : 10, 'Max' : 28}
                    }
 
+"""
 HPControl = {}
 for pump in Pumps:
     HPControl[pump] = {  'WarmTime'   : [6,23],
@@ -192,7 +204,7 @@ HPControl['livingdown']['WarmTime']   = [20,8]
 HPControl['livingdown']['WarmTemp' ]  = 20
 HPControl['livingdown']['ColdTemp' ]  = 17
 HPControl['livingdown']['Price_Gain'] = .13
-
+"""
 #####################################################
 
 
@@ -810,79 +822,6 @@ def AvPowerFlat(time,power,time_start=[],time_end=[]):
 
 
 
-"""
-window = 20
-response = requests.get(PIIP+'/api/get_data_since/tibber-realtime-'+home_name+'/minutes/'+str(window), timeout=60)
-TibberRT = json.loads(response.text)
-response = requests.get(PIIP+'/api/get_data_since/sensibo/minutes/'+str(window), timeout=60)
-Sensibo = json.loads(response.text)
-sys.exit()
-"""
-"""
-TimeInitial = datetime.now(tz=local_timezone)
-#dates = str(date.today())
-dates = str(date.today()-timedelta(days=1))
-DataHP, TibberData = PiFirstCall(TimeInitial, extension = dates)
-
-window = 20
-
-response = requests.get(PIIP+'/api/get_data_since/sensibo/minutes/'+str(window), timeout=60)
-Sensibo = json.loads(response.text)
-#print(Sensibo)
-if Sensibo['data']:
-    print('--------------------------------------')
-    NewHPTime = {}
-    for pump in Pumps:
-        print(pump)
-        for time in Sensibo['data'][pump]['time']:
-            print(datetime.strptime(time,'%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=timezone.utc).astimezone(local_timezone))
-    
-        NewHPTime[pump] = []
-        Index = -1
-        NewTime = datetime.strptime(Sensibo['data'][pump]['time'][-1],'%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=timezone.utc).astimezone(local_timezone)#+timedelta(hours=-1)
-        while NewTime > DataHP[pump]['Time'][-1] and len(Sensibo['data'][pump]['time'])+Index > 0:
-            Index -= 1
-            NewTime = datetime.strptime(Sensibo['data'][pump]['time'][Index],'%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=timezone.utc).astimezone(local_timezone)#+timedelta(hours=-1)
-        for index in range(Index,0):
-            time       = Sensibo['data'][pump]['time'][index]
-            time_local = datetime.strptime(time,'%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=timezone.utc).astimezone(local_timezone)
-
-            if time_local > DataHP[pump]['Time'][-1]:
-                print('Add data at time '+str(time_local))
-                NewHPTime[pump].append((time_local-TimeInitial).total_seconds()/60.)
-                DataHP[pump]['Time'].append(time_local)
-                DataHP[pump]['flattime'].append((time_local-TimeInitial).total_seconds()/60.)
-                for type in ['measurements','states']:
-                    for item in Sensibo['data'][pump][type].keys():
-                        DataHP[pump][type][item].append(Sensibo['data'][pump][type][item][index])
-        print('--------------------------------------')
-
-
-sys.exit()
-"""
-"""
-dates = str(date.today())
-TimeInitial = datetime.now(tz=local_timezone)
-DataHP, TibberData = PiFirstCall(TimeInitial, extension = dates)
-
-sys.exit()
-response = requests.get('https://0582484c4c43.ngrok.io/api/get_data/sensibo/daily/latest')
-Sensibo  = json.loads(response.text)
-
-
-
-response = requests.get(PIIP+'/api/get_data_since/tibber-realtime-'+home_name+'/minutes/5', timeout=60)
-TibberRT = json.loads(response.text)
-print(TibberRT)
-
-response = requests.get(PIIP+'/api/get_data_since/sensibo/minutes/5', timeout=60)
-Sensibo = json.loads(response.text)
-print(Sensibo)
-sys.exit()
-"""
-
-#CheckHPStates(SensiboDevices)  # Make sure that off pumps are at minimum temperature (16deg). The MPC model is invalid otherwise.
-
 print('Pull spot market')
 
 Spot = GetSpotMarket(Zone,local_timezone)
@@ -1368,27 +1307,6 @@ DataHP, TibberData = PiFirstCall(TimeInitial, extension = dates)
 dates = str(date.today())
 DataHP, TibberData, TibberDataNew  = PiCall(DataHP, TibberData , TimeInitial, extension = dates)
 
-    
-
-#sys.exit()
-"""
-response = requests.get(PIIP+'/api/get_data_since/tibber-realtime-'+home_name+'/minutes/5', timeout=60)
-TibberRT = json.loads(response.text)
-print(TibberRT)
-
-response = requests.get(PIIP+'/api/get_data_since/sensibo/minutes/5', timeout=60)
-Sensibo = json.loads(response.text)
-print(Sensibo)
-
-response = requests.get('https://0a94ccb62cb6.ngrok.io/api/get_data_since/tibber-realtime-home-pumps/minutes/5', timeout=30)
-TibberRT = json.loads(response.text)
-print(TibberRT)
-
-
-"""
-
-#DataHP, TibberData, TibberDataNew  = PiShortCall(DataHP, TibberData , TimeInitial)
-
 
 ##################  Prepare data structures #####################3
 
@@ -1584,311 +1502,309 @@ while 0 <= 1:
     #######################################################################
 
     # MHE uses: Times, DataHP, Weather, PowerAverage
-
-    if len(time_grid) >= 0:
         
+    for pump in Pumps:
+        DataMHENum['Data',:,pump,'Meas_temp'] = list(np.interp(  MHE_time_grid, DataHP[pump]['flattime'], DataHP[pump]['measurements']['temperature']    ))
+        DataMHENum['Data',:,pump,'Ref_temp']  = list(np.interp(  MHE_time_grid, DataHP[pump]['flattime'], DataHP[pump]['states']['targetTemperature']    ))
+        DataMHENum['Data',:,pump,'On']        = list(np.round(np.interp(  MHE_time_grid, DataHP[pump]['flattime'], DataHP[pump]['states']['on']          )))
+        DataMHENum['Data',:,pump,'Out_temp']  = list(np.interp(  MHE_time_grid, Times['Weather'], Weather['Temperature']                ))
+    DataMHENum['Data',:,'Power'] = list(np.interp(  MHE_time_grid, time_grid, PowerAverage                                     ))
+   
+    for key in WeightMHE:
+        DataMHENum['Weights',key] = WeightMHE[key]
+    
+    if not(MHEWarmStarted):
+        # Initial guesses and bounds
         for pump in Pumps:
-            DataMHENum['Data',:,pump,'Meas_temp'] = list(np.interp(  MHE_time_grid, DataHP[pump]['flattime'], DataHP[pump]['measurements']['temperature']    ))
-            DataMHENum['Data',:,pump,'Ref_temp']  = list(np.interp(  MHE_time_grid, DataHP[pump]['flattime'], DataHP[pump]['states']['targetTemperature']    ))
-            DataMHENum['Data',:,pump,'On']        = list(np.round(np.interp(  MHE_time_grid, DataHP[pump]['flattime'], DataHP[pump]['states']['on']          )))
-            DataMHENum['Data',:,pump,'Out_temp']  = list(np.interp(  MHE_time_grid, Times['Weather'], Weather['Temperature']                ))
-        DataMHENum['Data',:,'Power'] = list(np.interp(  MHE_time_grid, time_grid, PowerAverage                                     ))
-       
-        for key in WeightMHE:
-            DataMHENum['Weights',key] = WeightMHE[key]
-        
-        if not(MHEWarmStarted):
-            # Initial guesses and bounds
-            for pump in Pumps:
-                wMHE0['State',:,pump,'WallTemp']         =  DataMHENum['Data',:,pump,'Meas_temp']
-                lbwMHE['State',:,pump,'WallTemp']        =  DataMHENum['Data',:,pump,'Out_temp']
-                ubwMHE['State',:,pump,'WallTemp']        =  [1.25*val for val in DataMHENum['Data',:,pump,'Meas_temp']]
+            wMHE0['State',:,pump,'WallTemp']         =  DataMHENum['Data',:,pump,'Meas_temp']
+            lbwMHE['State',:,pump,'WallTemp']        =  DataMHENum['Data',:,pump,'Out_temp']
+            ubwMHE['State',:,pump,'WallTemp']        =  [1.25*val for val in DataMHENum['Data',:,pump,'Meas_temp']]
 
-                wMHE0['State',:,pump,'Power']            =  .75
-                lbwMHE['State',:,pump,'Power']           =  0
-                ubwMHE['State',:,pump,'Power']           =  1.5
+            wMHE0['State',:,pump,'Power']            =  .75
+            lbwMHE['State',:,pump,'Power']           =  0
+            ubwMHE['State',:,pump,'Power']           =  1.5
 
 
-                wMHE0['State',:,pump,'Temp']             =  DataMHENum['Data',:,pump,'Meas_temp']
-                
-                #lbwMHE['Input',:,pump,'Perturbation']    = -10
-                #ubwMHE['Input',:,pump,'Perturbation']    = +10
-
-        # Initial guesses and bounds for model parameters
-        fac = WeightExt['Fac']
-        if MHEWarmStarted:
-            for pump in Pumps:
-                for key in SYSID[pump].keys():
-                    wMHE0['Param',pump,key]  = SYSID[pump][key] #wMHE_opt['Param',pump,key]
-                    lbwMHE['Param',pump,key] = (1-fac)*SYSID[pump][key] #wMHE_opt['Param',pump,key]
-                    ubwMHE['Param',pump,key] = (1+fac)*SYSID[pump][key] #wMHE_opt['Param',pump,key]
-                    DataMHENum[ 'PrevParameters', pump, key ] = SYSID[pump][key] #wMHE_opt['Param',pump,key]
-        else:
-            for pump in Pumps:
-                for key in SYSID[pump].keys():
-                    wMHE0['Param',pump,key]  = SYSID[pump][key]
-                    lbwMHE['Param',pump,key] = (1-fac)*SYSID[pump][key]
-                    ubwMHE['Param',pump,key] = (1+fac)*SYSID[pump][key]
-                    DataMHENum[ 'PrevParameters', pump, key ] = SYSID[pump][key]
-
-        # Solve the NLP
-        sol      = solverMHE(x0=wMHE0, lbx=lbwMHE, ubx=ubwMHE, lbg=lbgMHE, ubg=ubgMHE, p=DataMHENum)
-        wMHE_opt = sol['x'].full().flatten()
-        
-        Logger_MHE_MPC['MHE']['RawSolution'].append(wMHE_opt)
-        Logger_MHE_MPC['MHE']['Time_Grid'].append(MHE_time_grid)
-        Logger_MHE_MPC['MHE']['DateTime'].append(TimeSchedule)
-        
-        wMHE_opt = wMHE(wMHE_opt)
-        if solverMHE.stats()['success']:
-            MHEWarmStarted         = True
-            MHEEstimationAvailable = True
-        else:
-            MHEWarmStarted         = False
-            MHEEstimationAvailable = False
-
-        if MHEEstimationAvailable:
-            SYSIDLog['Time'].append((TimeSchedule - TimeInitial).total_seconds()/60.)
-            for pump in Pumps:
-                print(pump)
-                print('--------------')
-                for key in SYSID[pump].keys():
-                    print('Value '+key+' : '+str(wMHE_opt['Param',pump,key])+' | From Value : '+str(wMHE0['Param',pump,key])+' | SYSID : '+str(SYSID[pump][key]))
-                    SYSIDLog[pump][key].append(float(wMHE_opt['Param',pump,key]))
-                    
-        if solverMHE.stats()['success']:
-            wMHE0    = wMHE_opt
-
-        MHEElecPower = []
-        NpumpOn   = []
-        for k in range(N_MHE_Horizon):
-            MHEElecPower.append(0)
-            NpumpOn.append(0)
-            for pump in Pumps:
-                MHEElecPower[-1]  += float(DataMHENum['Data',k,pump,'On']*wMHE_opt['State',k,pump,'Power'])
-                NpumpOn[-1]       += DataMHENum['Data',k,pump,'On']
-        
-        
-        MHELog['Times'].append(MHE_time_grid[-1])
-        MHELog['Power'].append(MHEElecPower[-1])
-        MHELog['Times_datetime'].append(TimeSchedule)
-        for pump in Pumps:
-            for key in MHEstates.keys():
-                MHELog[pump]['State'][key].append(wMHE_opt['State',-1,pump,key])
-            for key in MHEinputs.keys():
-                MHELog[pump]['Input'][key].append(wMHE_opt['Input',-1,pump,key])
-
-
-        FN = 0
-        for k, pump in enumerate(Pumps):
-            AxList[FN][0].clear()
-            AxList[FN][1].clear()
-            Ax2List[FN][0].clear()
-            Ax2List[FN][1].clear()
-            AxList[FN][0].step(DataHP[pump]['flattime'], DataHP[pump]['measurements']['temperature'],color='b')
-            AxList[FN][0].step(DataHP[pump]['flattime'], DataHP[pump]['states']['targetTemperature'],color='b',linestyle=':')
-            AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'Temp'],color='r',linewidth=3)
-            AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'WallTemp'],color='k')
-
-            AxList[FN][0].set(title=pump)
-            AxList[FN][0].legend(['Meas. temp.','Target. temp.','Est. temp.','Est. Wall temp.'])
-            AxList[FN][0].grid()
+            wMHE0['State',:,pump,'Temp']             =  DataMHENum['Data',:,pump,'Meas_temp']
             
-            AxList[FN][1].step(MHE_time_grid,wMHE_opt['State',:,pump,'Power'],color='b')
-            Ax2List[FN][1].step(MHE_time_grid[:-1],wMHE_opt['Input',:,pump,'Temp_Perturbation'],color='r')
-            AxList[FN][1].set_xlim(MHE_time_grid[0],MHE_time_grid[-1])
-            Ax2List[FN][1].set_ylabel('Temp correction [deg/5min]',fontsize=20,color='r')
-            AxList[FN][1].set_ylabel('Power [kwh]',fontsize=20,color='b')
-            AxList[FN][1].set(title='HP Power')
-            AxList[FN][1].grid()
-            FigList[FN].canvas.draw()
-            
-            FN += 1
-            
-        AxList[FN][0].clear()
-        AxList[FN][1].clear()
-        AxList[FN][0].step(time_grid,PowerAverage,color='b',where='post')
-        AxList[FN][0].step(MHE_time_grid,MHEElecPower,color='r',where='post')
-        AxList[FN][0].set_ylim([0,4.5])
-        AxList[FN][0].set(title='Total Pumps Power')
-        AxList[FN][0].grid()
-        Leg = []
-        for pump in Pumps:
-            Leg.append(pump)
-            AxList[FN][1].step(MHE_time_grid[:-1],wMHE_opt['Input',:,pump,'Power_Perturbation'],color=ColHP[pump])
-        AxList[FN][1].legend(Leg)
-        AxList[FN][1].set(title='Power adjustments in [W]')
-        AxList[FN][1].grid()
-        FigList[FN].canvas.draw()
-            
-        #######################################################################
-        ########################  Prepare & Solve MPC  ########################
-        #######################################################################
+            #lbwMHE['Input',:,pump,'Perturbation']    = -10
+            #ubwMHE['Input',:,pump,'Perturbation']    = +10
 
-        TimeTemp = []
-        for k in range(N_MPC_Horizon):
-            TimeAbs = TimeSchedule + timedelta(minutes=SamplingTime['Measurement']*k)
-            TimeTemp.append( np.mod(TimeAbs.hour + TimeAbs.minute/60., 24))
-
-        for pump in Pumps:
-            
-            lbwMPC['State',0,pump,'WallTemp']         =  wMHE_opt['State',-1,pump,'WallTemp']
-            ubwMPC['State',0,pump,'WallTemp']         =  wMHE_opt['State',-1,pump,'WallTemp']
-
-            lbwMPC['State',:,pump,'Power']            =  0
-            ubwMPC['State',:,pump,'Power']            =  1.5
-            lbwMPC['State',0,pump,'Power']            =  wMHE_opt['State',-1,pump,'Power']*DataMHENum['Data',-1,pump,'On']
-            ubwMPC['State',0,pump,'Power']            =  wMHE_opt['State',-1,pump,'Power']*DataMHENum['Data',-1,pump,'On']
-
-            lbwMPC['State',0,pump,'Temp']             =  wMHE_opt['State',-1,pump,'Temp']
-            ubwMPC['State',0,pump,'Temp']             =  wMHE_opt['State',-1,pump,'Temp']
-
-            lbwMPC['State',:,pump,'TargetTemp']       =  TargetTempLimit[pump]['Min']
-            ubwMPC['State',:,pump,'TargetTemp']       =  TargetTempLimit[pump]['Max']
-            
-            lbwMPC['Input',:,pump,'Delta_TargetTemp'] =  -inf
-            ubwMPC['Input',:,pump,'Delta_TargetTemp'] =  +inf
-            
-            lbwMPC['Input',:,pump,'On']               =  1
-            ubwMPC['Input',:,pump,'On']               =  1
-
-            lbwMPC['Input',0,pump,'On']               =  DataMHENum['Data',-1,pump,'On']
-            ubwMPC['Input',0,pump,'On']               =  DataMHENum['Data',-1,pump,'On']
-
-            lbwMPC['Input',:,pump,'Slack']            =  0
-            ubwMPC['Input',:,pump,'Slack']            =  +inf
-                    
-            lbwMPC['State',:,pump,'SlackMinTemp']     =  0
-            ubwMPC['State',:,pump,'SlackMinTemp']     =  +inf
-
-            if not(MPCWarmStarted):
-                wMPC0['State',:,pump,'WallTemp']          =  wMHE_opt['State',-1,pump,'WallTemp']
-                wMPC0['State',:,pump,'Power']             =  wMHE_opt['State',-1,pump,'Power']
-                wMPC0['State',:,pump,'Temp']              =  wMHE_opt['State',-1,pump,'Temp']
-                wMPC0['State',:,pump,'TargetTemp']        =  DataMHENum['Data',-1,pump,'Ref_temp']
-                wMPC0['Input',:,pump,'Delta_TargetTemp']  =  0
-                wMPC0['Input',:,pump,'On']                =  1
-                
-                wMPC0['Input',:,pump,'Slack']             =  0
-                
-                lbwMPC['State',0,pump,'TargetTemp']       =  DataMHENum['Data',-1,pump,'Ref_temp']
-                ubwMPC['State',0,pump,'TargetTemp']       =  DataMHENum['Data',-1,pump,'Ref_temp']
-
-
-                lbwMPC['State',0,pump,'Discomfort']       =  0
-                ubwMPC['State',0,pump,'Discomfort']       =  0
-
-            else:
-                if wMPC0['State',1,pump,'TargetTemp'] < 16 and DataMHENum['Data',-1,pump,'On'] == False:
-                    lbwMPC['State',0,pump,'TargetTemp']   =  wMPC0['State',1,pump,'TargetTemp']
-                    ubwMPC['State',0,pump,'TargetTemp']   =  wMPC0['State',1,pump,'TargetTemp']
-                else:
-                    lbwMPC['State',0,pump,'TargetTemp']   =  DataMHENum['Data',-1,pump,'Ref_temp']
-                    ubwMPC['State',0,pump,'TargetTemp']   =  DataMHENum['Data',-1,pump,'Ref_temp']
-                                
-                lbwMPC['State',0,pump,'Discomfort']       =  wMPC0['State',1,pump,'Discomfort']
-                ubwMPC['State',0,pump,'Discomfort']       =  wMPC0['State',1,pump,'Discomfort']
-
-                if DataMHENum['Data',-1,pump,'On'] == False:
-                    # If pump is off, assign 16 by default
-                    lbwMPC['State',0,pump,'TargetTemp']       =  np.min([wMPC0['State',1,pump,'TargetTemp'],16])
-                    ubwMPC['State',0,pump,'TargetTemp']       =  np.min([wMPC0['State',1,pump,'TargetTemp'],16])
-
-            f = scinterp.interp1d(np.array(TempSettings['Times']), np.array(TempSettings[pump]), kind='nearest')
-            DataMPCNum['DesiredTemperature',:,pump] = list(f(np.array(TimeTemp)))
-
-            f = scinterp.interp1d(np.array(MinTempSettings['Times']), np.array(MinTempSettings[pump]), kind='nearest')
-            DataMPCNum['MinTemperature',:,pump] = list(f(np.array(TimeTemp)))
-
-
-        DataMPCNum['Out_temp',:]                  = list(np.interp(  MPC_time_grid,  Times['Forecast'], Forecast['Temperature']           ))
-        
-        
-        #####  Feed spot market into MPC  #########
-        # Create a piecewise constant spot signal for easy interpolation
-        # Note: spot price applies from the time window starting at the corresponding time in the list up to +1h
-        SpotTimes  = []
-        SpotPrices = []
-        for k, price in enumerate(Spot['Prices']):
-            SpotTimes.append(Times['spot'][k])
-            SpotTimes.append(Times['spot'][k]+60)
-            SpotPrices.append(price)
-            SpotPrices.append(price)
-        
-        f = scinterp.interp1d(np.array(SpotTimes), np.array(SpotPrices), kind='nearest', fill_value=Spot['Prices'][-1], bounds_error=False)
-        DataMPCNum['SpotPrices',:]                = list(f(np.array(MPC_time_grid)))
-                
-        """
-        plt.figure(21)
-        plt.plot(Times['spot'],Spot['Prices'],color='k',linewidth=3)
-        plt.step(Times['spot'],Spot['Prices'], where='post',color='k',linewidth=3)
-        plt.plot(SpotTimes,SpotPrices,color='b',linewidth=2)
-        plt.step(SpotMarket['flattime'],SpotMarket['Prices'], where='post',color='c')
-        plt.plot(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:]),color='r')
-        plt.grid('on')
-        """
-        
-        ######################
-        #Base price
-        DataMPCNum['BasePrice'] = 0
-        print('Base Price : '+str(DataMPCNum['BasePrice'])+' Øre/kWh')
-        
-        for key in WeightMPC.keys():
-            DataMPCNum['Weights',key] = WeightMPC[key]
-            
+    # Initial guesses and bounds for model parameters
+    fac = WeightExt['Fac']
+    if MHEWarmStarted:
         for pump in Pumps:
             for key in SYSID[pump].keys():
-                DataMPCNum['SYSID',pump,key] = wMHE_opt['Param',pump,key]
+                wMHE0['Param',pump,key]  = SYSID[pump][key] #wMHE_opt['Param',pump,key]
+                lbwMHE['Param',pump,key] = (1-fac)*SYSID[pump][key] #wMHE_opt['Param',pump,key]
+                ubwMHE['Param',pump,key] = (1+fac)*SYSID[pump][key] #wMHE_opt['Param',pump,key]
+                DataMHENum[ 'PrevParameters', pump, key ] = SYSID[pump][key] #wMHE_opt['Param',pump,key]
+    else:
+        for pump in Pumps:
+            for key in SYSID[pump].keys():
+                wMHE0['Param',pump,key]  = SYSID[pump][key]
+                lbwMHE['Param',pump,key] = (1-fac)*SYSID[pump][key]
+                ubwMHE['Param',pump,key] = (1+fac)*SYSID[pump][key]
+                DataMHENum[ 'PrevParameters', pump, key ] = SYSID[pump][key]
+
+    # Solve the NLP
+    sol      = solverMHE(x0=wMHE0, lbx=lbwMHE, ubx=ubwMHE, lbg=lbgMHE, ubg=ubgMHE, p=DataMHENum)
+    wMHE_opt = sol['x'].full().flatten()
     
-        # Solve the NLP
-        print('###############################################')
-        print('###############    Solve MPC    ###############')
-        print('###############################################')
-        sol      = solverMPC(x0=wMPC0, lbx=lbwMPC, ubx=ubwMPC, lbg=lbgMPC, ubg=ubgMPC, p=DataMPCNum)
-        wMPC_opt = sol['x'].full().flatten()
-        
-        Logger_MHE_MPC['MPC']['RawSolution'].append(wMPC_opt)
-        Logger_MHE_MPC['MPC']['Time_Grid'].append(MPC_time_grid)
-        Logger_MHE_MPC['MPC']['DateTime'].append(TimeSchedule)
-        
-        wMPC_opt = wMPC(wMPC_opt)
+    Logger_MHE_MPC['MHE']['RawSolution'].append(wMHE_opt)
+    Logger_MHE_MPC['MHE']['Time_Grid'].append(MHE_time_grid)
+    Logger_MHE_MPC['MHE']['DateTime'].append(TimeSchedule)
+    
+    wMHE_opt = wMHE(wMHE_opt)
+    if solverMHE.stats()['success']:
+        MHEWarmStarted         = True
+        MHEEstimationAvailable = True
+    else:
+        MHEWarmStarted         = False
+        MHEEstimationAvailable = False
 
-        if solverMPC.stats()['success']:
-            wMPC0 = wMPC_opt
-            MPCWarmStarted      = True
-            MPCControlAvailable = True
+    if MHEEstimationAvailable:
+        SYSIDLog['Time'].append((TimeSchedule - TimeInitial).total_seconds()/60.)
+        for pump in Pumps:
+            print(pump)
+            print('--------------')
+            for key in SYSID[pump].keys():
+                print('Value '+key+' : '+str(wMHE_opt['Param',pump,key])+' | From Value : '+str(wMHE0['Param',pump,key])+' | SYSID : '+str(SYSID[pump][key]))
+                SYSIDLog[pump][key].append(float(wMHE_opt['Param',pump,key]))
+                
+    if solverMHE.stats()['success']:
+        wMHE0    = wMHE_opt
+
+    MHEElecPower = []
+    NpumpOn   = []
+    for k in range(N_MHE_Horizon):
+        MHEElecPower.append(0)
+        NpumpOn.append(0)
+        for pump in Pumps:
+            MHEElecPower[-1]  += float(DataMHENum['Data',k,pump,'On']*wMHE_opt['State',k,pump,'Power'])
+            NpumpOn[-1]       += DataMHENum['Data',k,pump,'On']
+    
+    
+    MHELog['Times'].append(MHE_time_grid[-1])
+    MHELog['Power'].append(MHEElecPower[-1])
+    MHELog['Times_datetime'].append(TimeSchedule)
+    for pump in Pumps:
+        for key in MHEstates.keys():
+            MHELog[pump]['State'][key].append(wMHE_opt['State',-1,pump,key])
+        for key in MHEinputs.keys():
+            MHELog[pump]['Input'][key].append(wMHE_opt['Input',-1,pump,key])
+
+
+    FN = 0
+    for k, pump in enumerate(Pumps):
+        AxList[FN][0].clear()
+        AxList[FN][1].clear()
+        Ax2List[FN][0].clear()
+        Ax2List[FN][1].clear()
+        AxList[FN][0].step(DataHP[pump]['flattime'], DataHP[pump]['measurements']['temperature'],color='b')
+        AxList[FN][0].step(DataHP[pump]['flattime'], DataHP[pump]['states']['targetTemperature'],color='b',linestyle=':')
+        AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'Temp'],color='r',linewidth=3)
+        AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'WallTemp'],color='k')
+
+        AxList[FN][0].set(title=pump)
+        AxList[FN][0].legend(['Meas. temp.','Target. temp.','Est. temp.','Est. Wall temp.'])
+        AxList[FN][0].grid()
+        
+        AxList[FN][1].step(MHE_time_grid,wMHE_opt['State',:,pump,'Power'],color='b')
+        Ax2List[FN][1].step(MHE_time_grid[:-1],wMHE_opt['Input',:,pump,'Temp_Perturbation'],color='r')
+        AxList[FN][1].set_xlim(MHE_time_grid[0],MHE_time_grid[-1])
+        Ax2List[FN][1].set_ylabel('Temp correction [deg/5min]',fontsize=20,color='r')
+        AxList[FN][1].set_ylabel('Power [kwh]',fontsize=20,color='b')
+        AxList[FN][1].set(title='HP Power')
+        AxList[FN][1].grid()
+        FigList[FN].canvas.draw()
+        
+        FN += 1
+        
+    AxList[FN][0].clear()
+    AxList[FN][1].clear()
+    AxList[FN][0].step(time_grid,PowerAverage,color='b',where='post')
+    AxList[FN][0].step(MHE_time_grid,MHEElecPower,color='r',where='post')
+    AxList[FN][0].set_ylim([0,4.5])
+    AxList[FN][0].set(title='Total Pumps Power')
+    AxList[FN][0].grid()
+    Leg = []
+    for pump in Pumps:
+        Leg.append(pump)
+        AxList[FN][1].step(MHE_time_grid[:-1],wMHE_opt['Input',:,pump,'Power_Perturbation'],color=ColHP[pump])
+    AxList[FN][1].legend(Leg)
+    AxList[FN][1].set(title='Power adjustments in [W]')
+    AxList[FN][1].grid()
+    FigList[FN].canvas.draw()
+        
+    #######################################################################
+    ########################  Prepare & Solve MPC  ########################
+    #######################################################################
+
+    TimeTemp = []
+    for k in range(N_MPC_Horizon):
+        TimeAbs = TimeSchedule + timedelta(minutes=SamplingTime['Measurement']*k)
+        TimeTemp.append( np.mod(TimeAbs.hour + TimeAbs.minute/60., 24))
+
+    for pump in Pumps:
+        
+        lbwMPC['State',0,pump,'WallTemp']         =  wMHE_opt['State',-1,pump,'WallTemp']
+        ubwMPC['State',0,pump,'WallTemp']         =  wMHE_opt['State',-1,pump,'WallTemp']
+
+        lbwMPC['State',:,pump,'Power']            =  0
+        ubwMPC['State',:,pump,'Power']            =  1.5
+        lbwMPC['State',0,pump,'Power']            =  wMHE_opt['State',-1,pump,'Power']*DataMHENum['Data',-1,pump,'On']
+        ubwMPC['State',0,pump,'Power']            =  wMHE_opt['State',-1,pump,'Power']*DataMHENum['Data',-1,pump,'On']
+
+        lbwMPC['State',0,pump,'Temp']             =  wMHE_opt['State',-1,pump,'Temp']
+        ubwMPC['State',0,pump,'Temp']             =  wMHE_opt['State',-1,pump,'Temp']
+
+        lbwMPC['State',:,pump,'TargetTemp']       =  TargetTempLimit[pump]['Min']
+        ubwMPC['State',:,pump,'TargetTemp']       =  TargetTempLimit[pump]['Max']
+        
+        lbwMPC['Input',:,pump,'Delta_TargetTemp'] =  -inf
+        ubwMPC['Input',:,pump,'Delta_TargetTemp'] =  +inf
+        
+        lbwMPC['Input',:,pump,'On']               =  1
+        ubwMPC['Input',:,pump,'On']               =  1
+
+        lbwMPC['Input',0,pump,'On']               =  DataMHENum['Data',-1,pump,'On']
+        ubwMPC['Input',0,pump,'On']               =  DataMHENum['Data',-1,pump,'On']
+
+        lbwMPC['Input',:,pump,'Slack']            =  0
+        ubwMPC['Input',:,pump,'Slack']            =  +inf
+                
+        lbwMPC['State',:,pump,'SlackMinTemp']     =  0
+        ubwMPC['State',:,pump,'SlackMinTemp']     =  +inf
+
+        if not(MPCWarmStarted):
+            wMPC0['State',:,pump,'WallTemp']          =  wMHE_opt['State',-1,pump,'WallTemp']
+            wMPC0['State',:,pump,'Power']             =  wMHE_opt['State',-1,pump,'Power']
+            wMPC0['State',:,pump,'Temp']              =  wMHE_opt['State',-1,pump,'Temp']
+            wMPC0['State',:,pump,'TargetTemp']        =  DataMHENum['Data',-1,pump,'Ref_temp']
+            wMPC0['Input',:,pump,'Delta_TargetTemp']  =  0
+            wMPC0['Input',:,pump,'On']                =  1
+            
+            wMPC0['Input',:,pump,'Slack']             =  0
+            
+            lbwMPC['State',0,pump,'TargetTemp']       =  DataMHENum['Data',-1,pump,'Ref_temp']
+            ubwMPC['State',0,pump,'TargetTemp']       =  DataMHENum['Data',-1,pump,'Ref_temp']
+
+
+            lbwMPC['State',0,pump,'Discomfort']       =  0
+            ubwMPC['State',0,pump,'Discomfort']       =  0
+
         else:
-            MPCWarmStarted      = False
-            MPCControlAvailable = False
-            
-            for pump in Pumps:
-                print(pump)
-                print(str(lbwMPC['State',0,pump,'Power']))
-                print(str(ubwMPC['State',0,pump,'Power']))
-            
-            print('MPC failed')
-            sys.exit()
+            if wMPC0['State',1,pump,'TargetTemp'] < 16 and DataMHENum['Data',-1,pump,'On'] == False:
+                lbwMPC['State',0,pump,'TargetTemp']   =  wMPC0['State',1,pump,'TargetTemp']
+                ubwMPC['State',0,pump,'TargetTemp']   =  wMPC0['State',1,pump,'TargetTemp']
+            else:
+                lbwMPC['State',0,pump,'TargetTemp']   =  DataMHENum['Data',-1,pump,'Ref_temp']
+                ubwMPC['State',0,pump,'TargetTemp']   =  DataMHENum['Data',-1,pump,'Ref_temp']
+                            
+            lbwMPC['State',0,pump,'Discomfort']       =  wMPC0['State',1,pump,'Discomfort']
+            ubwMPC['State',0,pump,'Discomfort']       =  wMPC0['State',1,pump,'Discomfort']
 
-        MPCElecPower = []
-        for k in range(N_MPC_Horizon-1):
-            MPCElecPower.append(0)
-            for pump in Pumps:
-                MPCElecPower[-1]  += float(wMPC_opt['Input',k,pump,'On']*wMPC_opt['State',k,pump,'Power'])
+            if DataMHENum['Data',-1,pump,'On'] == False:
+                # If pump is off, assign 16 by default
+                lbwMPC['State',0,pump,'TargetTemp']       =  np.min([wMPC0['State',1,pump,'TargetTemp'],16])
+                ubwMPC['State',0,pump,'TargetTemp']       =  np.min([wMPC0['State',1,pump,'TargetTemp'],16])
 
-        MPCActions = {}
-        for pump in Pumps:
-            MPCActions[pump] = {
-                                'RoomTemp'   : float(wMPC_opt['State',0,pump,'Temp']),
-                                'TargetTemp' : int(np.round(wMPC_opt['State',1,pump,'TargetTemp'])),
-                                'On'         : bool(wMPC_opt['Input',1,pump,'On']),
-                                'PowerMean'  : np.mean(wMPC_opt['State',1:1+int(np.round(SwitchOnOffWindow/float(SamplingTime['Measurement']))),pump,'Power'])
-                                }
-                                
+        f = scinterp.interp1d(np.array(TempSettings['Times']), np.array(TempSettings[pump]), kind='nearest')
+        DataMPCNum['DesiredTemperature',:,pump] = list(f(np.array(TimeTemp)))
+
+        f = scinterp.interp1d(np.array(MinTempSettings['Times']), np.array(MinTempSettings[pump]), kind='nearest')
+        DataMPCNum['MinTemperature',:,pump] = list(f(np.array(TimeTemp)))
+
+
+    DataMPCNum['Out_temp',:]                  = list(np.interp(  MPC_time_grid,  Times['Forecast'], Forecast['Temperature']           ))
+    
+    
+    #####  Feed spot market into MPC  #########
+    # Create a piecewise constant spot signal for easy interpolation
+    # Note: spot price applies from the time window starting at the corresponding time in the list up to +1h
+    SpotTimes  = []
+    SpotPrices = []
+    for k, price in enumerate(Spot['Prices']):
+        SpotTimes.append(Times['spot'][k])
+        SpotTimes.append(Times['spot'][k]+60)
+        SpotPrices.append(price)
+        SpotPrices.append(price)
+    
+    f = scinterp.interp1d(np.array(SpotTimes), np.array(SpotPrices), kind='nearest', fill_value=Spot['Prices'][-1], bounds_error=False)
+    DataMPCNum['SpotPrices',:]                = list(f(np.array(MPC_time_grid)))
+            
+    """
+    plt.figure(21)
+    plt.plot(Times['spot'],Spot['Prices'],color='k',linewidth=3)
+    plt.step(Times['spot'],Spot['Prices'], where='post',color='k',linewidth=3)
+    plt.plot(SpotTimes,SpotPrices,color='b',linewidth=2)
+    plt.step(SpotMarket['flattime'],SpotMarket['Prices'], where='post',color='c')
+    plt.plot(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:]),color='r')
+    plt.grid('on')
+    """
+    
+    ######################
+    #Base price
+    DataMPCNum['BasePrice'] = 0
+    print('Base Price : '+str(DataMPCNum['BasePrice'])+' Øre/kWh')
+    
+    for key in WeightMPC.keys():
+        DataMPCNum['Weights',key] = WeightMPC[key]
+        
+    for pump in Pumps:
+        for key in SYSID[pump].keys():
+            DataMPCNum['SYSID',pump,key] = wMHE_opt['Param',pump,key]
+
+    # Solve the NLP
+    print('###############################################')
+    print('###############    Solve MPC    ###############')
+    print('###############################################')
+    sol      = solverMPC(x0=wMPC0, lbx=lbwMPC, ubx=ubwMPC, lbg=lbgMPC, ubg=ubgMPC, p=DataMPCNum)
+    wMPC_opt = sol['x'].full().flatten()
+    
+    Logger_MHE_MPC['MPC']['RawSolution'].append(wMPC_opt)
+    Logger_MHE_MPC['MPC']['Time_Grid'].append(MPC_time_grid)
+    Logger_MHE_MPC['MPC']['DateTime'].append(TimeSchedule)
+    
+    wMPC_opt = wMPC(wMPC_opt)
+
+    if solverMPC.stats()['success']:
+        wMPC0 = wMPC_opt
+        MPCWarmStarted      = True
         MPCControlAvailable = True
-        print('------------ MPC Actions ------------')
+    else:
+        MPCWarmStarted      = False
+        MPCControlAvailable = False
+        
         for pump in Pumps:
-            print(pump+' : on '+str(MPCActions[pump]['On']))
-            print('Target temperature : '+str(MPCActions[pump]['TargetTemp']))
+            print(pump)
+            print(str(lbwMPC['State',0,pump,'Power']))
+            print(str(ubwMPC['State',0,pump,'Power']))
+        
+        print('MPC failed')
+        sys.exit()
+
+    MPCElecPower = []
+    for k in range(N_MPC_Horizon-1):
+        MPCElecPower.append(0)
+        for pump in Pumps:
+            MPCElecPower[-1]  += float(wMPC_opt['Input',k,pump,'On']*wMPC_opt['State',k,pump,'Power'])
+
+    MPCActions = {}
+    for pump in Pumps:
+        MPCActions[pump] = {
+                            'RoomTemp'   : float(wMPC_opt['State',0,pump,'Temp']),
+                            'TargetTemp' : int(np.round(wMPC_opt['State',1,pump,'TargetTemp'])),
+                            'On'         : bool(wMPC_opt['Input',1,pump,'On']),
+                            'PowerMean'  : np.mean(wMPC_opt['State',1:1+int(np.round(SwitchOnOffWindow/float(SamplingTime['Measurement']))),pump,'Power'])
+                            }
+                            
+    MPCControlAvailable = True
+    print('------------ MPC Actions ------------')
+    for pump in Pumps:
+        print(pump+' : on '+str(MPCActions[pump]['On']))
+        print('Target temperature : '+str(MPCActions[pump]['TargetTemp']))
      
      
     print('--------------------------')
@@ -1908,74 +1824,39 @@ while 0 <= 1:
          print(key+' : '+str(WeightExt[key]))
     print('--------------------------')
     
-    ####### Heat pump control here ########
-    if not(MPCControlAvailable):
-        index_price = FindTimeIndex(Spot['Time'],TimeSchedule)
+    ####### Implement Heat Pump control here ########
+
+    # On/off switching
+    for pump in Pumps:
+        HPState[pump]['targetTemperature'] = int(np.max([16,MPCActions[pump]['TargetTemp']]))
         
-        #Weighted avarege future price:
-        AveragePrice = np.mean(Spot['Prices'][index_price:])
-        
-        CurrentPrice = Spot['Prices'][index_price]
-        minPrice = int(np.floor(np.min(Spot['Prices'][index_price:index_price+MPC_Horizon])))
-        
-        print('Spot Price : '+str(CurrentPrice)+' Øre/kWh')
-        
-        # Assign temperatures:
-        
-        for HP in Pumps:
-            IsWarmTime = CheckTimeInterval(HPControl[HP]['WarmTime'],TimeSchedule.hour)
-            if IsWarmTime:
-                TempRef = HPControl[HP]['WarmTemp']
-                print(HP+' : warm time --> '+str(TempRef)+'deg')
-            else:
-                TempRef = HPControl[HP]['ColdTemp']
-                print(HP+' : cold time --> '+str(TempRef)+'deg')
+        if (MPCActions[pump]['PowerMean'] > PowerSwitch) and (MPCActions[pump]['On'] == True) and HPState[pump]['on'] == False:
+            if (TimeSchedule - OnOffSwitch[pump]).total_seconds() > SwitchOnOffWindow*60:
+                #Switch on if the MPC pump power is high enough, and if the last switch is old enough
+                HPState[pump]['on']                = True
+                OnOffSwitch[pump]                  = TimeSchedule
+                print(pump+' switch at : '+str(OnOffSwitch[pump]) )
+        if (MPCActions[pump]['PowerMean'] < PowerSwitch) and HPState[pump]['on'] == True:
+            if (TimeSchedule - OnOffSwitch[pump]).total_seconds() > SwitchOnOffWindow*60:
+                HPState[pump]['on']                = False
+                HPState[pump]['targetTemperature'] = 16
+                OnOffSwitch[pump]                  = TimeSchedule
+                print(pump+' switch at : '+str(OnOffSwitch[pump]) )
                 
-            Temperature = TempRef - HPControl[HP]['Price_Gain']*(CurrentPrice-AveragePrice)
-            Temperature = np.min([Temperature,HPControl[HP]['temp_max']])
-      
-            if Temperature < 16.:
-                # Shut down the pump if lower than 16
-                HPState[HP]['on']                = False
-                HPState[HP]['targetTemperature'] = 16
-            if Temperature >= 16.:
-                # Run the pump if above 16, assign rounded integer temperature
-                HPState[HP]['on']                = True
-                HPState[HP]['targetTemperature'] = int(np.round(Temperature))
-            HPState[HP]['fanLevel'] = 'medium'
-    else:
-    
-        # On/off switching
-        for pump in Pumps:
-            HPState[pump]['targetTemperature'] = int(np.max([16,MPCActions[pump]['TargetTemp']]))
-            
-            if (MPCActions[pump]['PowerMean'] > PowerSwitch) and (MPCActions[pump]['On'] == True) and HPState[pump]['on'] == False:
-                if (TimeSchedule - OnOffSwitch[pump]).total_seconds() > SwitchOnOffWindow*60:
-                    #Switch on if the MPC pump power is high enough, and if the last switch is old enough
-                    HPState[pump]['on']                = True
-                    OnOffSwitch[pump]                  = TimeSchedule
-                    print(pump+' switch at : '+str(OnOffSwitch[pump]) )
-            if (MPCActions[pump]['PowerMean'] < PowerSwitch) and HPState[pump]['on'] == True:
-                if (TimeSchedule - OnOffSwitch[pump]).total_seconds() > SwitchOnOffWindow*60:
-                    HPState[pump]['on']                = False
-                    HPState[pump]['targetTemperature'] = 16
-                    OnOffSwitch[pump]                  = TimeSchedule
-                    print(pump+' switch at : '+str(OnOffSwitch[pump]) )
-                    
-        #Assign Fan speed: Adopt higher fan speeds for larger temperature errors
-        for pump in Pumps:
-            HPState[pump]['fanLevel']     = 'medium'
-            TempDiff = MPCActions[pump]['RoomTemp'] - DataHP[pump]['measurements']['temperature'][-1]
-            TempTarg = HPState[pump]['targetTemperature'] - DataHP[pump]['measurements']['temperature'][-1]
-            fanspeed   = np.max([np.min([np.max([0,3*TempDiff]),4]), np.min([np.max([0,.5*TempTarg]),3])])
-            
-            indexspeed = int(np.round(fanspeed))
-            HPState[pump]['fanLevel'] = FanSpeeds[indexspeed]
+    #Assign Fan speed: Adopt higher fan speeds for larger temperature errors
+    for pump in Pumps:
+        HPState[pump]['fanLevel']     = 'medium'
+        TempDiff = MPCActions[pump]['RoomTemp'] - DataHP[pump]['measurements']['temperature'][-1]
+        TempTarg = HPState[pump]['targetTemperature'] - DataHP[pump]['measurements']['temperature'][-1]
+        fanspeed   = np.max([np.min([np.max([0,3*TempDiff]),4]), np.min([np.max([0,.5*TempTarg]),3])])
         
-        for pump in Pumps:
-            print(pump+' last switch at : '+str(OnOffSwitch[pump]) )
-     
-    ###### HERE COMMANDS ARE SENT TO THE PUMPS, COMMENT OUT TO NEUTRALIZE THE CONTROL ######
+        indexspeed = int(np.round(fanspeed))
+        HPState[pump]['fanLevel'] = FanSpeeds[indexspeed]
+    
+    for pump in Pumps:
+        print(pump+' last switch at : '+str(OnOffSwitch[pump]) )
+ 
+    ###### HERE COMMANDS ARE SENT TO THE PUMPS, COMMENT OUT TO MAKE THE CODE "PASSIVE" ######
     print('Update pumps states')
     UpdatePumpStates(SensiboDevices,HPState)
     ########################################################################################
@@ -2169,7 +2050,7 @@ while 0 <= 1:
     AxList[FN][0].set_ylim([0,4.5])
     Ax2List[FN][0].set_ylim([np.min(DataMPCNum['SpotPrices',:])+GridCost,np.max(DataMPCNum['SpotPrices',:])+GridCost])
     
-    Ax2List[FN][0].set_ylim([np.min(SpotMarket['Prices'])+GridCost),np.max(np.array(SpotMarket['Prices'])+GridCost)])
+    Ax2List[FN][0].set_ylim([np.min(SpotMarket['Prices'])+GridCost,np.max(np.array(SpotMarket['Prices']))+GridCost])
     
     AxList[FN][1].clear()
     Ax2List[FN][1].clear()
