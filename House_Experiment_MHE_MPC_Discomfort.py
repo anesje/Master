@@ -46,6 +46,8 @@ import string
 # For the house:
 # - Show overall consumption + prices
 # - Show last 24h and next 24h
+#
+# Show both spot prices (with VAT), and total prices
 
 plt.close("all")
 
@@ -156,8 +158,6 @@ MaxPowSingle = 1.5
 SwitchOnOffWindow = 30      #in minutes: minimum window of time for which an on/off decision is held
 PowerSwitch       = 50/1e3  #in kW     : mean predicted power (over window) at which a switch on/off is prescribed
 
-SpotBasePriceWindow = 1 # DEPRACATED - How many days in the past do we look at to calculate base prices (zero-gradient prices)
-
 # Mixed integer formulation
 MixInteger     = False
 IntegerHorizon = 1
@@ -176,35 +176,6 @@ TargetTempLimit = {
                     'livingdown' : {'Min' : 10, 'Max' : 28}
                    }
 
-"""
-HPControl = {}
-for pump in Pumps:
-    HPControl[pump] = {  'WarmTime'   : [6,23],
-                         'WarmTemp'   : 21,
-                         'ColdTemp'   : 19,
-                         'Price_Gain' : .1,
-                         'temp_max'   : 26}
-
-HPControl['main']['WarmTime']         = [7,22]
-HPControl['main']['WarmTemp' ]        = 21
-HPControl['main']['ColdTemp' ]        = 18
-HPControl['main']['Price_Gain']       = .12
-
-HPControl['living']['WarmTime']       = [7,22]
-HPControl['living']['WarmTemp' ]      = 21
-HPControl['living']['ColdTemp' ]      = 18
-HPControl['living']['Price_Gain']     = .1
-
-HPControl['studio']['WarmTime']       = [19,8]
-HPControl['studio']['WarmTemp' ]      = 20
-HPControl['studio']['ColdTemp' ]      = 17
-HPControl['studio']['Price_Gain']     = .13
-
-HPControl['livingdown']['WarmTime']   = [20,8]
-HPControl['livingdown']['WarmTemp' ]  = 20
-HPControl['livingdown']['ColdTemp' ]  = 17
-HPControl['livingdown']['Price_Gain'] = .13
-"""
 #####################################################
 
 
@@ -624,7 +595,7 @@ def GetSpotMarketHistory(Zone,local_timezone,DaysBack):
                 'Prices': []}
             
         DateList = []
-        for days in range(-DaysBack,0):
+        for days in range(-DaysBack,1):
             DateList.append( date.today() + timedelta(days=days) )
             
         for FetchDate in DateList:
@@ -824,7 +795,8 @@ def AvPowerFlat(time,power,time_start=[],time_end=[]):
 
 print('Pull spot market')
 
-Spot = GetSpotMarket(Zone,local_timezone)
+#Spot = GetSpotMarket(Zone,local_timezone)
+Spot = GetSpotMarketHistory(Zone,local_timezone,1)
 
 print('Read settings')
 TempSettings, MinTempSettings, WeightMPC, WeightMHE, WeightExt = ReadSettings()
@@ -1030,6 +1002,13 @@ for pump in Pumps:
     TempMin += [entry( pump )]
 TempMin = struct_symMX( TempMin  )
 
+ConstIndex = 0
+ComfortTempIndex = {}
+MinimumTempIndex = {}
+for pump in Pumps:
+    ComfortTempIndex[pump] = []
+    MinimumTempIndex[pump] = []
+
 MPCstates = struct_symMX([      entry('Temp'),
                                 entry('TargetTemp'),
                                 entry('WallTemp'),
@@ -1124,31 +1103,40 @@ for k in range(N-1):
         g.append(  wMPC['State',k,pump,'TargetTemp'] + DeltaTarget  -  wMPC['State',k+1,pump,'TargetTemp']     )
         lbgMPC.append(0)
         ubgMPC.append(0)
+        ConstIndex += 1
 
         g.append(  wMPC['State',k,pump,'Temp']     + Delta_Room_Temp  -  wMPC['State',k+1,pump,'Temp']     )
         lbgMPC.append(0)
         ubgMPC.append(0)
+        ConstIndex += 1
 
         g.append(  wMPC['State',k,pump,'WallTemp'] + Delta_Wall_Temp  -  wMPC['State',k+1,pump,'WallTemp']    )
         lbgMPC.append(0)
         ubgMPC.append(0)
+        ConstIndex += 1
         
         g.append(  ElecPower_pump_plus                                -  wMPC['State',k+1,pump,'Power']    )
         lbgMPC.append(0)
         ubgMPC.append(0)
+        ConstIndex += 1
 
         g.append( DataMPC['Weights','DiscomfortDecay']*wMPC['State',k,pump,'Discomfort'] + DataMPC['Weights','DiscomfortGain']*wMPC['Input',k,pump,'Slack'] - wMPC['State',k+1,pump,'Discomfort'] )
         lbgMPC.append(0)
         ubgMPC.append(0)
+        ConstIndex += 1
 
         g.append(  DataMPC['DesiredTemperature',k,pump] - wMPC['State',k,pump,'Temp'] - wMPC['Input',k,pump,'Slack']   )
         lbgMPC.append(-inf)
         ubgMPC.append(0)
-
+        ComfortTempIndex[pump].append(ConstIndex)
+        ConstIndex += 1
+        
         g.append(  DataMPC['MinTemperature',k,pump] - wMPC['State',k,pump,'Temp'] - wMPC['State',k,pump,'SlackMinTemp']   )
         lbgMPC.append(-inf)
         ubgMPC.append(0)
-    
+        MinimumTempIndex[pump].append(ConstIndex)
+        ConstIndex += 1
+        
         ### Cost ###
         HubDeltaTemp   = DataMPC['Weights','HubDeltaTemp']
         HubDeltaTarget = DataMPC['Weights','HubDeltaTarget']
@@ -1171,14 +1159,20 @@ for k in range(N-1):
             g.append( PowerGroup )
             lbgMPC.append(-inf)
             ubgMPC.append( MaxPowGroup[indexgroup] )
+            ConstIndex += 1
+            
+for pump in Pumps:
+    J += DataMPC['Weights','TempBelow']*wMPC['State',-1,pump,'Discomfort']**2/float(N)
 
-    for pump in Pumps:
-        J += DataMPC['Weights','TempBelow']*wMPC['State',-1,pump,'Discomfort']**2/float(N)
+    g.append(  DataMPC['MinTemperature',-1,pump] - wMPC['State',-1,pump,'Temp'] - wMPC['State',-1,pump,'SlackMinTemp']   )
+    lbgMPC.append(-inf)
+    ubgMPC.append(0)
+    MinimumTempIndex[pump].append(ConstIndex)
+    ConstIndex += 1
+                
+    J += DataMPC['Weights','MinTemp']*wMPC['State',-1,pump,'SlackMinTemp']**2/float(N)
 
-        g.append(  DataMPC['MinTemperature',-1,pump] - wMPC['State',-1,pump,'Temp'] - wMPC['State',-1,pump,'SlackMinTemp']   )
-        lbgMPC.append(-inf)
-        ubgMPC.append(0)
-        J += DataMPC['Weights','MinTemp']*wMPC['State',-1,pump,'SlackMinTemp']**2/float(N)
+assert(len(g) == ConstIndex)
 
 # Create an NLP solver
 MPC = {'f': J, 'x': wMPC, 'g': vertcat(*g), 'p': DataMPC}
@@ -1200,29 +1194,26 @@ DataMPCNum = DataMPC(0)
 ############## Prepare figures ##############
 
 print('############## Prepare plotting ##############')
+# FN 0,1,2,3 are double
+# FN 4 is single
+# FN 5 is single
+# FN 6,7,8,9 are double
+    
+Nfig = [2,2,2,2,1,1,1,1,1,1]
 
 plt.ion()
 FigList = []
 AxList  = []
 Ax2List = []
-for fig in range(0,17):
+for fig, nfig in enumerate(Nfig):
     figID = plt.figure(fig+1,figsize=(18,6))
     FigList.append(figID)
     AxList.append( [] )
     Ax2List.append( [] )
-    for sub in range(1,3):
-        ax = figID.add_subplot(1,2,sub)
+    for sub in range(1,nfig+1):
+        ax = figID.add_subplot(1,nfig,sub)
         AxList[fig].append(ax)
         Ax2List[fig].append(ax.twinx())
-
-
-for fig in range(17,18):
-    figID = plt.figure(fig+1,figsize=(18,6))
-    FigList.append(figID)
-    AxList.append( [] )
-    for sub in range(1,7):
-        ax = figID.add_subplot(3,2,sub)
-        AxList[fig].append(ax)
 
 
 ############## Prepare MHE/MPC logger ##############
@@ -1595,47 +1586,7 @@ while 0 <= 1:
             MHELog[pump]['Input'][key].append(wMHE_opt['Input',-1,pump,key])
 
 
-    FN = 0
-    for k, pump in enumerate(Pumps):
-        AxList[FN][0].clear()
-        AxList[FN][1].clear()
-        Ax2List[FN][0].clear()
-        Ax2List[FN][1].clear()
-        AxList[FN][0].step(DataHP[pump]['flattime'], DataHP[pump]['measurements']['temperature'],color='b')
-        AxList[FN][0].step(DataHP[pump]['flattime'], DataHP[pump]['states']['targetTemperature'],color='b',linestyle=':')
-        AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'Temp'],color='r',linewidth=3)
-        AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'WallTemp'],color='k')
 
-        AxList[FN][0].set(title=pump)
-        AxList[FN][0].legend(['Meas. temp.','Target. temp.','Est. temp.','Est. Wall temp.'])
-        AxList[FN][0].grid()
-        
-        AxList[FN][1].step(MHE_time_grid,wMHE_opt['State',:,pump,'Power'],color='b')
-        Ax2List[FN][1].step(MHE_time_grid[:-1],wMHE_opt['Input',:,pump,'Temp_Perturbation'],color='r')
-        AxList[FN][1].set_xlim(MHE_time_grid[0],MHE_time_grid[-1])
-        Ax2List[FN][1].set_ylabel('Temp correction [deg/5min]',fontsize=20,color='r')
-        AxList[FN][1].set_ylabel('Power [kwh]',fontsize=20,color='b')
-        AxList[FN][1].set(title='HP Power')
-        AxList[FN][1].grid()
-        FigList[FN].canvas.draw()
-        
-        FN += 1
-        
-    AxList[FN][0].clear()
-    AxList[FN][1].clear()
-    AxList[FN][0].step(time_grid,PowerAverage,color='b',where='post')
-    AxList[FN][0].step(MHE_time_grid,MHEElecPower,color='r',where='post')
-    AxList[FN][0].set_ylim([0,4.5])
-    AxList[FN][0].set(title='Total Pumps Power')
-    AxList[FN][0].grid()
-    Leg = []
-    for pump in Pumps:
-        Leg.append(pump)
-        AxList[FN][1].step(MHE_time_grid[:-1],wMHE_opt['Input',:,pump,'Power_Perturbation'],color=ColHP[pump])
-    AxList[FN][1].legend(Leg)
-    AxList[FN][1].set(title='Power adjustments in [W]')
-    AxList[FN][1].grid()
-    FigList[FN].canvas.draw()
         
     #######################################################################
     ########################  Prepare & Solve MPC  ########################
@@ -1763,6 +1714,13 @@ while 0 <= 1:
     sol      = solverMPC(x0=wMPC0, lbx=lbwMPC, ubx=ubwMPC, lbg=lbgMPC, ubg=ubgMPC, p=DataMPCNum)
     wMPC_opt = sol['x'].full().flatten()
     
+    Mult             = sol['lam_g'].full().flatten()
+    ComfortTempPrice = {}
+    MinimumTempPrice = {}
+    for pump in Pumps:
+        ComfortTempPrice[pump] = Mult[ComfortTempIndex[pump]]
+        MinimumTempPrice[pump] = Mult[MinimumTempIndex[pump]]
+    
     Logger_MHE_MPC['MPC']['RawSolution'].append(wMPC_opt)
     Logger_MHE_MPC['MPC']['Time_Grid'].append(MPC_time_grid)
     Logger_MHE_MPC['MPC']['DateTime'].append(TimeSchedule)
@@ -1861,37 +1819,48 @@ while 0 <= 1:
     UpdatePumpStates(SensiboDevices,HPState)
     ########################################################################################
     
-    # Plot data
-    FN = 5
+    
+    #################      PLOT DATA BELOW THIS POINT      #################
+
+    NMPCtraj = int(2*60/float(SamplingTime['Measurement']))
+    NDisp    = np.min([len(Logger_MHE_MPC['MPC']['RawSolution']),NMPCtraj])
+    LenLogger = len(Logger_MHE_MPC['MPC']['RawSolution'])
+
+    
+    DispWindow = int(24*60/float(SamplingTime['Measurement']))
+    
+    FN = 0
     # Temperatures
-    Leg = ['Measured','Target','MHE']
+    Leg  = []
+    Leg2 = []
     for pump in Pumps:
             AxList[FN][0].clear()
             Ax2List[FN][0].clear()
-            #try:
-            AxList[FN][0].step(DataHP[pump]['flattime'],DataHP[pump]['measurements']['temperature'], where='post',color=[.8,.8,1],linestyle = '-')
-            AxList[FN][0].step(DataHP[pump]['flattime'],DataHP[pump]['states']['targetTemperature'], where='post',color='g',linestyle = '-')
-            AxList[FN][0].step(MHELog['Times'],MHELog[pump]['State']['Temp'], where='post', linewidth=2,color='r',linestyle='-')
-            Ax2List[FN][0].step(DataHP[pump]['flattime'],DataHP[pump]['states']['on'], where='post', linewidth=2,color='k',linestyle='-')
-                    
-            if MHEEstimationAvailable:
-                AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'Temp'],color='b',linewidth=2,where='post')
-                Leg.append('MHE Sol.')
-            if MPCControlAvailable:
-                AxList[FN][0].step(MPC_time_grid,wMPC_opt['State',:,pump,'Temp'],color='b',linewidth=2,linestyle = '--',where='post')
-                AxList[FN][0].step(MPC_time_grid,wMPC_opt['State',:,pump,'TargetTemp'],color='g',linewidth=2,linestyle = '--',where='post')
-                Ax2List[FN][0].step(MPC_time_grid,wMPC_opt['State',:,pump,'Discomfort'],color='c',linewidth=2,linestyle = '--',where='post')
-                #Ax2List[FN][0].step(MPC_time_grid[:-1],wMPC_opt['Input',:,pump,'Slack'],color='y',linewidth=2,linestyle = '--',where='post')
 
-                AxList[FN][0].step(MPC_time_grid,DataMPCNum['DesiredTemperature',:,pump],color='m',linewidth=2,linestyle = '-',where='post')
-                AxList[FN][0].step(MPC_time_grid,DataMPCNum['MinTemperature',:,pump],color='r',linewidth=2,linestyle = '-',where='post')
-                Leg.append('MPC room temp')
-                Leg.append('MPC temp setting')
-                Leg.append('Desired temp.')
-                Leg.append('Min temp.')
+            AxList[FN][0].step(DataHP[pump]['flattime'][-DispWindow:],DataHP[pump]['measurements']['temperature'][-DispWindow:], where='post',color=[.8,.8,1],linestyle = '-')
+            Leg.append('Meas. Temp.')
+            AxList[FN][0].step(DataHP[pump]['flattime'][-DispWindow:],DataHP[pump]['states']['targetTemperature'][-DispWindow:], where='post',color=[0,.8,0],linestyle = '-')
+            Leg.append('Target')
+            Ax2List[FN][0].step(DataHP[pump]['flattime'][-DispWindow:],np.array(DataHP[pump]['states']['on'][-DispWindow:]), where='post', linewidth=2,color='k',linestyle='-')
+            Leg2.append('On/off')
+                        
+            AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'Temp'],color=[.6,.6,1],linewidth=2,where='post',linestyle = '-')
+            Leg.append('MHE Temp.')
+
+            AxList[FN][0].step(MPC_time_grid,wMPC_opt['State',:,pump,'Temp'],color='b',linewidth=2,linestyle = '-',where='post')
+            Leg.append('MPC Temp.')
+            AxList[FN][0].step(MPC_time_grid,wMPC_opt['State',:,pump,'TargetTemp'],color='g',linewidth=2,linestyle = '-',where='post')
+            Leg.append('MPC Target')
+            Ax2List[FN][0].step(MPC_time_grid,np.array(wMPC_opt['State',:,pump,'Discomfort']),color='c',linewidth=2,linestyle = '-',where='post')
+            Leg2.append('MPC Discomfort')
+                        
+            AxList[FN][0].step(MPC_time_grid,DataMPCNum['DesiredTemperature',:,pump],color='m',linewidth=2,linestyle = '-',where='post')
+            Leg.append('Desired temp.')
+            AxList[FN][0].step(MPC_time_grid,DataMPCNum['MinTemperature',:,pump],color='r',linewidth=2,linestyle = '-',where='post')
+            
+            Leg.append('Min temp.')
             AxList[FN][0].legend(Leg)
-            Ax2List[FN][0].legend(['on/off','Discomfort'])
-            #Ax2List[FN][0].legend('HP on')
+            Ax2List[FN][0].legend(Leg2)
             AxList[FN][0].grid()
             AxList[FN][0].set(title='Temp. in '+HPNames[pump])
             
@@ -1899,194 +1868,121 @@ while 0 <= 1:
             Ax2List[FN][1].clear()
             AxList[FN][1].set(title=HPNames[pump]+' power')
             if MPCControlAvailable:
+                AxList[FN][1].step(MHE_time_grid,wMHE_opt['State',:,pump,'Power'],color=[.8,.8,1],linewidth=2,where='post',linestyle = '-')
+                Ax2List[FN][1].step(Times['spot'][-DispWindow:],np.array(Spot['Prices'][-DispWindow:])+GridCost, where='post', linewidth=2,color=[1,.8,.8])
                 AxList[FN][1].step(MPC_time_grid,wMPC_opt['State',:,pump,'Power'], where='post', linewidth=2,color='b')
-                AxList[FN][1].step(MPC_time_grid[:-1],wMPC_opt['Input',:,pump,'On'], where='post', linewidth=2,color='k')
+                if MixInteger:
+                    AxList[FN][1].step(MPC_time_grid[:-1],wMPC_opt['Input',:,pump,'On'], where='post', linewidth=2,color='k')
                 Ax2List[FN][1].step(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, where='post', linewidth=2,color='r')
+                #Ax2List[FN][1].step(MPC_time_grid,0*np.array(DataMPCNum['SpotPrices',:])+GridCost, where='post', linewidth=2,color='r',linestyle = '--')
                 Ax2List[FN][1].set_ylabel('Prices [Øre]',fontsize=20,color='r')
                 AxList[FN][1].set_ylabel('Power [kwh]',fontsize=20,color='b')
             AxList[FN][1].grid()
             FigList[FN].canvas.draw()
             FN += 1
-    
-    # Spot prices (Figure 10)
+            
+
+    # Spot prices
+    FN = 4
     AxList[FN][0].clear()
     Ax2List[FN][0].clear()
-    try:
-        #Ax2[0].step( PowerLog['Times'], PowerLog['Power'] ,color=[.8,.8,1])
-        Ax2List[FN][0].step( time_grid, PowerAverage,color=[.8,.8,1])
-        AxList[FN][0].step(Spot['Time'],np.array(Spot['Prices'])+GridCost, where='post', linewidth=2,color='r')
-        AxList[FN][0].plot([TimeSchedule]*len(Spot['Prices']),np.array(Spot['Prices'])+GridCost,linewidth=2,color='k')
-        AxList[FN][0].plot([TimeSchedule+timedelta(hours=MPC_Horizon)]*len(Spot['Prices']),np.array(Spot['Prices'])+GridCost,linewidth=1,color='k',linestyle='--')
-        AxList[FN][0].text(TimeSchedule,max(Spot['Prices'])+GridCost,'Now',horizontalalignment='center',verticalalignment='bottom',fontsize=15)
-        AxList[FN][0].plot([TimeSchedule, TimeSchedule+timedelta(hours=MPC_Horizon)],[DataMPCNum['BasePrice']]*2,linewidth=1,color='c',linestyle='-')
-        Ax2List[FN][0].set_ylim([0,4.5])
-        AxList[FN][0].set_ylim([np.min(np.array(DataMPCNum['SpotPrices',:])+GridCost),np.max(np.array(DataMPCNum['SpotPrices',:])+GridCost)])
-    except:
-        print('Spot prices plotting failed')
-  
-    AxList[FN][0].set(ylabel='Price (Øre/kWh)')
-    AxList[FN][0].set(xlabel='Local time')
-    AxList[FN][0].autoscale(enable=True, axis='x', tight=True)
-    AxList[FN][0].autoscale(enable=True, axis='y', tight=True)
+    
+    
+    for index in range(0,NDisp): #, traj in enumerate(Logger_MHE_MPC['MPC']['RawSolution'][-NMPCtraj:]):
+        traj = Logger_MHE_MPC['MPC']['RawSolution'][index + LenLogger - NDisp]
+        Col  = [(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp)]
+        Traj = wMPC(traj)
+        MPCElecPower = []
+        for k in range(N_MPC_Horizon-1):
+            MPCElecPower.append(0)
+            for pump in Pumps:
+                MPCElecPower[-1]  += float(Traj['Input',k,pump,'On']*Traj['State',k,pump,'Power'])
+        AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][index + LenLogger - NDisp][:-1], MPCElecPower,color=Col,linewidth=2,where='post')
+
+    AxList[FN][0].step( time_grid[-DispWindow:], PowerAverage[-DispWindow:] ,color=[.8,.8,1])
+    AxList[FN][0].step(MHE_time_grid,MHEElecPower,color='b',linewidth=2,where='post',linestyle = '-')
+    AxList[FN][0].set_ylabel('Power [kW]',fontsize=20,color='b')
+    Ax2List[FN][0].step(Times['spot'][-DispWindow:],np.array(Spot['Prices'][-DispWindow:])+GridCost, where='post', linewidth=2,color=[1,.8,.8])
+    Ax2List[FN][0].plot(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, linestyle='none',marker='.',color='r')
+    Ax2List[FN][0].set_ylabel('Total Price [Øre]',fontsize=20,color='r')
+    AxList[FN][0].set_ylim([0,4.5])
+    Ax2List[FN][0].set_ylim([GridCost,np.max(1.05*np.array(Spot['Prices'][-DispWindow:])+GridCost)])
     AxList[FN][0].grid()
-    FigList[FN].canvas.draw()
 
-    AxList[FN][1].clear()
-    Ax2List[FN][1].clear()
-    try:
-        Leg = ['Av.','MHE log']
-        AxList[FN][1].step( time_grid, PowerAverage ,color=[.8,.8,1])
-        AxList[FN][1].step(MHELog['Times'],MHELog['Power'], where='post', linewidth=2,color='k',linestyle='-')
-        if MHEEstimationAvailable:
-            AxList[FN][1].step(MHE_time_grid,MHEElecPower,color='b',linewidth=2,where='post')
-            Leg.append('MHE Sol.')
-        if MPCControlAvailable:
-            AxList[FN][1].step(MPC_time_grid[:-1], MPCElecPower,color='b',linewidth=2,linestyle = '--',where='post')
-            Leg.append('MPC Sol.')
-        AxList[FN][1].set_ylabel('Power [kW]',fontsize=20,color='b')
-        Ax2List[FN][1].step(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, where='post', linewidth=2,color='r')
-        Ax2List[FN][1].set_ylabel('Total Price [Øre]',fontsize=20,color='r')
-        Ax2List[FN][1].plot([TimeSchedule, TimeSchedule+timedelta(hours=MPC_Horizon)],[DataMPCNum['BasePrice']]*2,linewidth=1,color='c',linestyle='-')
-        AxList[FN][1].legend(Leg)
-        AxList[FN][1].set_xlim([MHE_time_grid[0],MPC_time_grid[-1]])
-        AxList[FN][1].set_ylim([0,4.5])
-        Ax2List[FN][1].set_ylim([np.min(np.array(DataMPCNum['SpotPrices',:])+GridCost),np.max(np.array(DataMPCNum['SpotPrices',:])+GridCost)])
-        AxList[FN][1].grid()
-    except:
-        print('Real-time energy plot failed')
-        sys.exit()
 
+ 
         
     FigList[FN].canvas.draw()
-    FN += 1
-    
+
+    FN = 5
     # Weather
+
+    AxList[FN][0].clear()
+    Ax2List[FN][0].clear()
+    AxList[FN][0].plot(Times['Weather'][-DispWindow:],Weather['Temperature'][-DispWindow:],color=[.8,.8,1],linewidth=2)
+    #AxList[FN][0].step(Forecast['Time'][:],Forecast['Temperature'],color='c')
+    AxList[FN][0].plot(MPC_time_grid,DataMPCNum['Out_temp',:],color='b',linestyle = '-',linewidth=2)
     try:
-        AxList[FN][0].clear()
-        AxList[FN][0].step(Weather['Time'],Weather['Temperature'],color='b')
-        AxList[FN][0].grid()
-        AxList[FN][1].clear()
-        Ax2List[FN][1].clear()
-        AxList[FN][1].step(Forecast['Time'],Forecast['Temperature'],color='c')
-        Ax2List[FN][1].step(RadiationData['Time'],RadiationData['DNI'],color='c')
-        AxList[FN][1].grid()
-    except:
-        print('Weather plot failed')
-    
-    FigList[FN].canvas.draw()
-    
-    FN += 1
-    
-    try:
-        AxList[FN][0].clear()
-        AxList[FN][0].step(Weather['Time'],Weather['Temperature'],color='b')
-        AxList[FN][0].grid()
-        AxList[FN][1].clear()
-        AxList[FN][1].step(RadiationData['Time'],RadiationData['DNI'],color='c')
-        AxList[FN][1].plot([TimeSchedule]*len(Radiation['DNI']),Radiation['DNI'],linewidth=2,color='k')
-        AxList[FN][1].grid()
-        FigList[FN].canvas.draw()
+        Ax2List[FN][0].plot(RadiationData['Time'][-DispWindow:],RadiationData['DNI'][-DispWindow:],color='r')
     except:
         print('Radiation plot failed')
-    
-    FigList[FN].canvas.draw()
-        
-    #### PLOTS TO ASSESS MPC / MHE PREDICTION / FITTING ####
-    FN = 12
+    AxList[FN][0].set_ylabel('Out Temp.',fontsize=20,color='b')
+    Ax2List[FN][0].set_ylabel('Radiation.',fontsize=20,color='c')
 
-    NMPCtraj = int(2*60/float(SamplingTime['Measurement']))
-    NDisp    = np.min([len(Logger_MHE_MPC['MPC']['RawSolution']),NMPCtraj])
-    NMPCdisphorizon = int(12*60/float(SamplingTime['Measurement']))
-    LenLogger = len(Logger_MHE_MPC['MPC']['RawSolution'])
+    FigList[FN].canvas.draw()
+    
+    #### PLOTS TO ASSESS MPC ####
+    FN = 6
+
+ 
     for fig, pump in enumerate(Pumps):
         AxList[FN][0].clear()
+
         for index in range(0,NDisp): #, traj in enumerate(Logger_MHE_MPC['MPC']['RawSolution'][-NMPCtraj:]):
             traj = Logger_MHE_MPC['MPC']['RawSolution'][index + LenLogger - NDisp]
-            Col  = [(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp)]
             Traj = wMPC(traj)
-            AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][index-NDisp][:NMPCdisphorizon],Traj['State',:NMPCdisphorizon,pump,'Temp'], where='post', linewidth=1,color=Col,linestyle='-')
-            AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][index-NDisp][0],Traj['State',0,pump,'Temp'], where='post', marker='.',color='r')
-        AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][-1][:NMPCdisphorizon],Traj['State',:NMPCdisphorizon,pump,'Temp'], where='post', linewidth=1,color=[.5,0,0],linestyle='-')
-        AxList[FN][0].step(MHELog['Times'],MHELog[pump]['State']['Temp'], where='post', linewidth=2,color=[.35,0,0],linestyle='-')
-        AxList[FN][0].step(DataHP[pump]['flattime'],DataHP[pump]['measurements']['temperature'], where='post', linewidth=2,color='b',linestyle = '-')
-        
-        AxList[FN][1].clear()
-        for index in range(0,NDisp): #traj in enumerate(Logger_MHE_MPC['MPC']['RawSolution'][-NMPCtraj:]):
-            traj = Logger_MHE_MPC['MPC']['RawSolution'][index + LenLogger - NDisp]
-            Traj = wMPC(traj)
-            Col  = [(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp)]
-            AxList[FN][1].step(Logger_MHE_MPC['MPC']['Time_Grid'][index-NDisp][:NMPCdisphorizon],Traj['State',:NMPCdisphorizon,pump,'TargetTemp'], where='post', linewidth=1,color=Col,linestyle='-')
-        AxList[FN][1].step(Logger_MHE_MPC['MPC']['Time_Grid'][-1][:NMPCdisphorizon],Traj['State',:NMPCdisphorizon,pump,'TargetTemp'], where='post', linewidth=1,color=[.5,0,0],linestyle='-')
-        AxList[FN][1].step(DataHP[pump]['flattime'],DataHP[pump]['states']['targetTemperature'], where='post', linewidth=2,color='g',linestyle = '-')
+            Col  = [(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp),1]
+            AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][index + LenLogger - NDisp],Traj['State',:,pump,'Temp'], where='post', linewidth=1,color=Col,linestyle='-')
+            Col  = [(NDisp-index)/float(NDisp),1,(NDisp-index)/float(NDisp)]
+            AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][index + LenLogger - NDisp],Traj['State',:,pump,'TargetTemp'], where='post', linewidth=1,color=Col,linestyle='-')
 
-        AxList[FN][0].set(title=pump+' temp.')
-        AxList[FN][1].set(title=pump+' target temp.')
+        AxList[FN][0].step(DataHP[pump]['flattime'][-DispWindow:],DataHP[pump]['measurements']['temperature'][-DispWindow:], where='post', linewidth=2,color=[.8,.8,1],linestyle = '-')
+        AxList[FN][0].step(MHE_time_grid,wMHE_opt['State',:,pump,'Temp'],color='b',linewidth=2,where='post',linestyle = '-')
+        AxList[FN][0].step(DataHP[pump]['flattime'][-DispWindow:],DataHP[pump]['states']['targetTemperature'][-DispWindow:], where='post', linewidth=2,color=[0,.8,0],linestyle = '-')
+    
+        AxList[FN][0].set(title='MPC consistency '+HPNames[pump])
+        #AxList[FN][0].legend(title=pump+' temp.')
         AxList[FN][0].grid()
-        AxList[FN][1].grid()
         FigList[FN].canvas.draw()
         FN += 1
 
-    FN = 16
+    """
+    FN = 10
     AxList[FN][0].clear()
     Ax2List[FN][0].clear()
-    AxList[FN][0].step(TibberData['flattime'],np.array(TibberData['Power'])*1e-3, where='post', linewidth=1,color=[1,.9,.9],linestyle='-')
-    AxList[FN][0].step(time_grid,PowerAverage, where='post', linewidth=1,color='r',linestyle='-')
-    for index in range(0,NDisp): #for index, traj in enumerate(Logger_MHE_MPC['MPC']['RawSolution'][-NMPCtraj:]):
+    
+    
+    for index in range(0,NDisp): #, traj in enumerate(Logger_MHE_MPC['MPC']['RawSolution'][-NMPCtraj:]):
         traj = Logger_MHE_MPC['MPC']['RawSolution'][index + LenLogger - NDisp]
         Col  = [(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp)]
-        PredPower = 0
-        for pump in Pumps:
-            Traj = wMPC(traj)
-            PredPower += np.array(Traj['Input',:NMPCdisphorizon,pump,'On'])*np.array(Traj['State',:NMPCdisphorizon,pump,'Power'])
-            
-        AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][index-NDisp][:NMPCdisphorizon],PredPower, where='post', linewidth=1,color=Col,linestyle='-')
-    AxList[FN][0].step(MHE_time_grid,MHEElecPower,color='c',linewidth=2,where='post')
+        Traj = wMPC(traj)
+        MPCElecPower = []
+        for k in range(N_MPC_Horizon-1):
+            MPCElecPower.append(0)
+            for pump in Pumps:
+                MPCElecPower[-1]  += float(Traj['Input',k,pump,'On']*Traj['State',k,pump,'Power'])
+        AxList[FN][0].step(Logger_MHE_MPC['MPC']['Time_Grid'][index + LenLogger - NDisp][:-1], MPCElecPower,color=Col,linewidth=2,where='post')
 
-    AxList[FN][0].step(MHELog['Times'],MHELog['Power'], where='post', linewidth=2,color='b',linestyle='-')
-    Ax2List[FN][0].step(SpotMarket['flattime'],np.array(SpotMarket['Prices'])+GridCost, where='post', linewidth=2,color=[.5,0,.5])
-    Ax2List[FN][0].plot(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, marker='o', linewidth=1,color='m')
-    Ax2List[FN][0].set_ylabel('Prices [Øre]',fontsize=20,color='m')
-    AxList[FN][0].set(title='Total Power')
+    AxList[FN][0].step( time_grid[-DispWindow:], PowerAverage[-DispWindow:] ,color=[.8,.8,1])
+    AxList[FN][0].step(MHE_time_grid,MHEElecPower,color='b',linewidth=2,where='post',linestyle = '--')
+    AxList[FN][0].set_ylabel('Power [kW]',fontsize=20,color='b')
+    Ax2List[FN][0].step(Times['spot'][-DispWindow:],np.array(Spot['Prices'][-DispWindow:])+GridCost, where='post', linewidth=2,color=[1,.8,.8])
+    Ax2List[FN][0].plot(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, linestyle='none',marker='.',color='r')
+    Ax2List[FN][0].set_ylabel('Total Price [Øre]',fontsize=20,color='r')
     AxList[FN][0].set_ylim([0,4.5])
-    Ax2List[FN][0].set_ylim([np.min(DataMPCNum['SpotPrices',:])+GridCost,np.max(DataMPCNum['SpotPrices',:])+GridCost])
-    
-    Ax2List[FN][0].set_ylim([np.min(SpotMarket['Prices'])+GridCost,np.max(np.array(SpotMarket['Prices']))+GridCost])
-    
-    AxList[FN][1].clear()
-    Ax2List[FN][1].clear()
-    for index in range(0,NDisp): #for index, traj in enumerate(Logger_MHE_MPC['MPC']['RawSolution'][-NMPCtraj:]):
-        traj = Logger_MHE_MPC['MPC']['RawSolution'][index + LenLogger - NDisp]
-        Col  = [(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp),(NDisp-index)/float(NDisp)]
-        PredPower = 0
-        for pump in Pumps:
-            Traj = wMPC(traj)
-            PredPower += np.array(Traj['Input',:NMPCdisphorizon,pump,'On'])*np.array(Traj['State',:NMPCdisphorizon,pump,'Power'])
-            
-        AxList[FN][1].step(Logger_MHE_MPC['MPC']['Time_Grid'][index-NDisp][:NMPCdisphorizon],PredPower, where='post', linewidth=1,color=Col,linestyle='-')
-    AxList[FN][1].step(time_grid,PowerAverage, where='post', linewidth=1,color='r',linestyle='-')
-    AxList[FN][1].step(MHE_time_grid,MHEElecPower,color='c',linewidth=2,where='post')
-
-    AxList[FN][1].step(MHELog['Times'],MHELog['Power'], where='post', linewidth=2,color='b',linestyle='-')
-    Ax2List[FN][1].step(MPC_time_grid,np.array(DataMPCNum['SpotPrices',:])+GridCost, where='post', linewidth=2,color='m')
-    Ax2List[FN][1].set_ylabel('Prices [Øre]',fontsize=20,color='m')
-    AxList[FN][1].set(title='Total Power')
-    AxList[FN][1].set_ylim([0,4.5])
-    Ax2List[FN][1].set_ylim([np.min(DataMPCNum['SpotPrices',:])+GridCost,np.max(DataMPCNum['SpotPrices',:])+GridCost])
-
-    FigList[FN].canvas.draw()
-    
-    FN = 17
-    Col = ['r','g','b','m']
-    for sub, key in enumerate(SYSID[Pumps[0]].keys()):
-        AxList[FN][sub].clear()
-        Leg = []
-        for col, pump in enumerate(Pumps):
-            AxList[FN][sub].step(SYSIDLog['Time'],SYSIDLog[pump][key],color=Col[col],where='post')
-            #AxList[FN][sub].step(SYSIDLog['Time'],[SYSID[pump][key]]*len(SYSIDLog['Time']),color=Col[col],linestyle=':',where='post')
-            Leg.append(pump)
-        AxList[FN][sub].set(title=key)
-        AxList[FN][0].legend(Leg)
-    FigList[FN].canvas.draw()
+    Ax2List[FN][0].set_ylim([GridCost,np.max(1.05*np.array(Spot['Prices'][-DispWindow:])+GridCost)])
+    AxList[FN][0].grid()
+    """
     
     # Plot all
     plt.pause(0.1) #hack to ensure that the plot is drawn on the fly
@@ -2100,7 +1996,6 @@ while 0 <= 1:
     while TimeSchedule < time:
         print('Pushed time schedule forward')
         TimeSchedule += timedelta(minutes=SamplingTime['Measurement'])
-
 
 
     DataPickle = {'TimeGrid'          : time_grid,
